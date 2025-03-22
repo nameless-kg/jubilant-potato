@@ -34,14 +34,19 @@ library(car)
 
 The first step is to fetch the data, and rename the species for readability.
 
-```{r, echo=FALSE, 'fetching data + adding the sex variable'}
-rm(list = ls()) #clear global environment
+```{r, echo=FALSE, 'fetching data and adding the sex variable'}
+
+rm(list = ls()) #clears global environment for fresh start.
+
 data("finch")   #fetching dataset
+
 sex<-rep(c("F","M"),length(finch[,1])/2) #creating the new "sex" variable
+
 fin2<-cbind(finch,sex) #adding the variable, as a new column, to the dataset
+
 fin2 <- as.data.frame(fin2) %>% # Convert to data.frame for easier manipulation
   mutate(Species = case_when( 
-        Species == "Geospiza_heliobates"    ~ "G. heliobates",      #Renaming species for readability
+        Species == "Geospiza_heliobates"    ~ "G. heliobates",      #Renaming the species column for readability
         
         Species == "Geospiza_prosthemelas_prosthemelas" ~ "G.p. prosthemelas",    #...
         
@@ -52,16 +57,18 @@ fin2 <- as.data.frame(fin2) %>% # Convert to data.frame for easier manipulation
          Species == "Geospiza_fortis_platyrhyncha"      ~ "G. f. platyrhyncha",#...
     
 
-  TRUE ~ Species  # Keep other species  unchanged
+  TRUE ~ Species  # Keep any other species  unchanged
   ))
 
 df_fortis <- fin2 %>%
-  filter(Species == "G. f. fortis")
+  filter(Species == "G. f. fortis") ## seperate G. f. fortis data from 'fin2' for later intraspecific anylysis.
 ```
 
-The data is then grouped by Species and the columns are labelled according to the traits being expressed by the each variable. The first, second and third statistical moments of each variable are then taken (those being the mean, standard deviation and variance respectively).
+
 
 ```{r echo=TRUE, message=TRUE, warning=TRUE, paged.print=TRUE}
+
+##The data is grouped by species, the arithmetic mean -- mean()--, standard deviation --sd()-- and variance --var()-- are calculated for the numeric traits (so not including the sex variable) and rounded up to 3 significant figures.
 
 finch_smry <- fin2 %>%
   group_by(Species) %>%
@@ -74,7 +81,7 @@ finch_smry <- fin2 %>%
     ),
     .names = "{.col}_{.fn}"
   )) %>%
-  pivot_longer(
+  pivot_longer(             ## Reformatting the table so each group (Species) is represented by in a single row, naming and adding the columns associated with each trait's mean (p/m std. dev) and their variance.
     cols = -Species,
     names_to = c("Trait", ".value"),
     names_sep = "_"
@@ -91,12 +98,12 @@ finch_smry <- fin2 %>%
 
 Once the statistical moments have been taken, the table is rearranged for clarity.
 
-```{r, echo = FALSE, 'Reordering the data for accessibility'}
-  finch_smry_ordered <- finch_smry %>%
+```{r, echo = TRUE, 'Reordering the data for accessibility'}
+  finch_smry_ordered <- finch_smry %>%  ##assingning the summarised data to a new table which will be handled seperately (this may not be necessary, however it does allow for a more transparent step-by-step progression. It may be more efficient to do all of the ordering dirctly on 'finch_smry', that leaves us with fewer tables in the end, particularly since 'finch_smry' isn't really used from hereon out.
   dplyr::select( 
     Species,
     BodyL_Mean_SD,
-    BodyL_var,  # The first, second and third statistical moments for each sample are reordered to sit adjacent to one another.
+    BodyL_var,      # The columns for the first, second and third statistical moments (mean, std. dev and var) for each trait are reordered to sit adjacent to one another in the table.
     WingL_Mean_SD, #..............
     WingL_var,
     TailL_Mean_SD,#................
@@ -117,34 +124,13 @@ Once the statistical moments have been taken, the table is rearranged for clarit
 
 ```
 
-The following is a summary table denoting the different species of Finches, along with the means, ± the standard deviations and the variance of each variable.
 
-```{r, echo=FALSE , results ='asis', 'summary statistical table'}
 
-finch_smry_ordered <- finch_smry %>%
-  dplyr::select(
-    Species,
-    BodyL_Mean_SD,
-    BodyL_var,
-    WingL_Mean_SD,
-    WingL_var,
-    TailL_Mean_SD,
-    TailL_var,
-    BeakW_Mean_SD,
-    BeakW_var,
-    BeakH_Mean_SD,
-    BeakH_var,
-    LBeakL_Mean_SD,
-    LBeakL_var,
-    UBeakL_Mean_SD,
-    UBeakL_var,
-    `N.UBkL_Mean_SD`,
-    `N.UBkL_var`,
-    TarsusL_Mean_SD,
-    TarsusL_var
-  ) %>%
-gt()%>%
-  cols_label(
+```{r, echo = TRUE, results ='asis', 'summary statistical table'}
+
+finch_smry_ordered %>%
+gt()%>%    
+  cols_label(          ## Renaming the columns so as to improve interpretability as well as the underscores that made the column names look cluttered.
     Species = "Species",
     BodyL_Mean_SD = "avg Body Length (± sd)",
     WingL_Mean_SD = "avg Wing Length (± sd)",
@@ -165,7 +151,7 @@ gt()%>%
     `N.UBkL_var` = "NUBKL var",
     TarsusL_var= "TarsusL var"
   ) %>%
-  data_color(
+  data_color(   ##setting the respecctive specie colours for the cells in the table
     columns = Species,
     rows = everything(),
     method = "factor",
@@ -182,11 +168,11 @@ gt()%>%
 
 ### Data Analysis
 
-MANOVA results:
 
-```{r pressure, echo=FALSE}
 
-species_colors <- c(
+```{r , echo= TRUE, 'MANOVA'}
+
+species_colors <- c(    ##saving specie colours as vector, saving the need to retype this each time we want to plot them
   "G. heliobates" = "red",
   "G.p. prosthemelas" = "grey",
   "G. f. parvula" = "green",
@@ -194,12 +180,12 @@ species_colors <- c(
   "G. f. platyrhyncha" = "cyan"
 )
 
-# Using data.frame 'fin2' and the morphological variables therein:
+# Using the morphological variables therein:
 
-# we perform the MANOVA
+
 manova_model <- manova(cbind(BodyL, WingL, TailL, BeakW, BeakH, LBeakL, UBeakL, `N.UBkL`, TarsusL) ~ Species, data = fin2)
 
-# And print a summary of the results
+#Summary of the results
 
 print(manova_model)
 
@@ -207,11 +193,12 @@ print(manova_model)
 
 PCA
 
-```{r, echo = TRUE}
-# Select the morphological measurements (numeric columns)
+```{r, echo = TRUE, 'Principla Component Analysis'}
+
+# Select the morphological measurements (from the numeric columns)
 morph_data <- fin2[, sapply(fin2, is.numeric)]
 
-# Scale the data (important for PCA)
+# Scale the data 
 scaled_morph_data <- scale(morph_data)
 
 # Perform PCA using prcomp
@@ -223,7 +210,7 @@ summary(pca_result)
 # Loadings of the principal components
 loadings(pca_result)
 
-# You can also visualize the PCA results, for example, a scree plot
+# You can also visualize the PCA results in a scree plot
 plot(pca_result$sdev^2, type = "b", main = "Scree Plot", xlab = "Principal Component", ylab = "Variance")
 
 # And a biplot to see the relationship between samples and variables
