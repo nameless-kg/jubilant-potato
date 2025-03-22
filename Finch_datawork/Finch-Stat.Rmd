@@ -1,0 +1,398 @@
+---
+title: "Darwin’s finches: Intraspecific morphological variation"
+author: "Kirsten Hendricks"
+date: "2025-03-18"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dynRB)
+library(tidyverse)
+library(MASS)
+library(RColorBrewer)
+library(tibble)
+library(ggplot2)
+library(ggplotify)
+library(rmarkdown)
+library(dynlm)
+library(stats)
+library(dplyr)
+library(tidyr)
+library(gtable)
+library(glue)
+library(knitr)
+library(gt)
+library(coin)
+library(scales)
+library(car)
+```
+
+# Methods
+
+### Sampling:
+
+The first step is to fetch the data, and rename the species for readability.
+
+```{r, echo=FALSE, 'fetching data + adding the sex variable'}
+rm(list = ls()) #clear global environment
+data("finch")   #fetching dataset
+sex<-rep(c("F","M"),length(finch[,1])/2) #creating the new "sex" variable
+fin2<-cbind(finch,sex) #adding the variable, as a new column, to the dataset
+fin2 <- as.data.frame(fin2) %>% # Convert to data.frame for easier manipulation
+  mutate(Species = case_when( 
+        Species == "Geospiza_heliobates"    ~ "G. heliobates",      #Renaming species for readability
+        
+        Species == "Geospiza_prosthemelas_prosthemelas" ~ "G.p. prosthemelas",    #...
+        
+        Species == "Geospiza_fuliginosa_parvula"      ~ "G. f. parvula",    #...
+        
+        Species == "Geospiza_fortis_fortis"      ~ "G. f. fortis", #...........
+    
+         Species == "Geospiza_fortis_platyrhyncha"      ~ "G. f. platyrhyncha",#...
+    
+
+  TRUE ~ Species  # Keep other species  unchanged
+  ))
+
+df_fortis <- fin2 %>%
+  filter(Species == "G. f. fortis")
+```
+
+The data is then grouped by Species and the columns are labelled according to the traits being expressed by the each variable. The first, second and third statistical moments of each variable are then taken (those being the mean, standard deviation and variance respectively).
+
+```{r echo=TRUE, message=TRUE, warning=TRUE, paged.print=TRUE}
+
+finch_smry <- fin2 %>%
+  group_by(Species) %>%
+  dplyr::summarize(across(
+    where(is.numeric),
+    list(
+      mean = ~ round(mean(., na.rm = TRUE), 3),
+      sd = ~ round(sd(., na.rm = TRUE), 3),
+      var = ~ round(var(., na.rm = TRUE), 3)
+    ),
+    .names = "{.col}_{.fn}"
+  )) %>%
+  pivot_longer(
+    cols = -Species,
+    names_to = c("Trait", ".value"),
+    names_sep = "_"
+  ) %>%
+  mutate(Mean_SD = paste(mean, "±", sd)) %>%
+  dplyr::select(-mean, -sd) %>%
+  pivot_wider(
+    id_cols = Species,
+    names_from = Trait,
+    values_from = c(Mean_SD, var),
+    names_glue = "{Trait}_{.value}"
+  )
+```
+
+Once the statistical moments have been taken, the table is rearranged for clarity.
+
+```{r, echo = FALSE, 'Reordering the data for accessibility'}
+  finch_smry_ordered <- finch_smry %>%
+  dplyr::select( 
+    Species,
+    BodyL_Mean_SD,
+    BodyL_var,  # The first, second and third statistical moments for each sample are reordered to sit adjacent to one another.
+    WingL_Mean_SD, #..............
+    WingL_var,
+    TailL_Mean_SD,#................
+    TailL_var,
+    BeakW_Mean_SD,#..........................
+    BeakW_var,
+    BeakH_Mean_SD,#..................
+    BeakH_var,
+    LBeakL_Mean_SD,#................
+    LBeakL_var,
+    UBeakL_Mean_SD,#...................
+    UBeakL_var,
+    `N.UBkL_Mean_SD`,#...........................
+    `N.UBkL_var`,
+    TarsusL_Mean_SD,#...................
+    TarsusL_var
+  )
+
+```
+
+The following is a summary table denoting the different species of Finches, along with the means, ± the standard deviations and the variance of each variable.
+
+```{r, echo=FALSE , results ='asis', 'summary statistical table'}
+
+finch_smry_ordered <- finch_smry %>%
+  dplyr::select(
+    Species,
+    BodyL_Mean_SD,
+    BodyL_var,
+    WingL_Mean_SD,
+    WingL_var,
+    TailL_Mean_SD,
+    TailL_var,
+    BeakW_Mean_SD,
+    BeakW_var,
+    BeakH_Mean_SD,
+    BeakH_var,
+    LBeakL_Mean_SD,
+    LBeakL_var,
+    UBeakL_Mean_SD,
+    UBeakL_var,
+    `N.UBkL_Mean_SD`,
+    `N.UBkL_var`,
+    TarsusL_Mean_SD,
+    TarsusL_var
+  ) %>%
+gt()%>%
+  cols_label(
+    Species = "Species",
+    BodyL_Mean_SD = "avg Body Length (± sd)",
+    WingL_Mean_SD = "avg Wing Length (± sd)",
+    TailL_Mean_SD = "avg Tail Length (± sd)",
+    BeakW_Mean_SD = "avg Beak Width (± sd)",
+    BeakH_Mean_SD = "avg Beak Height (± sd)",
+    LBeakL_Mean_SD ="avg L.Beak Length (± sd)",
+    UBeakL_Mean_SD = "avg U. Beak Length (± sd)",
+    `N.UBkL_Mean_SD` = "N to U. Beak Length (± sd)",
+    TarsusL_Mean_SD = "avg Tarsus Length (± sd)",
+    BodyL_var = "BL var",
+    WingL_var = "WL var",
+    TailL_var = "TL var",
+    BeakW_var = "BW var",
+    BeakH_var = "BH var",
+    LBeakL_var = "LBL var",
+    UBeakL_var = "UBL var",
+    `N.UBkL_var` = "NUBKL var",
+    TarsusL_var= "TarsusL var"
+  ) %>%
+  data_color(
+    columns = Species,
+    rows = everything(),
+    method = "factor",
+    palette =  c(
+        "G. f. fortis" = "purple",
+        "G. f. parvula" = "green",
+        "G. f. platyrhyncha" = "cyan",
+        "G. heliobates" = "red",
+        "G.p. prosthemelas" = "grey"),
+    alpha = 0.8
+  )
+
+```
+
+### Data Analysis
+
+MANOVA results:
+
+```{r pressure, echo=FALSE}
+
+species_colors <- c(
+  "G. heliobates" = "red",
+  "G.p. prosthemelas" = "grey",
+  "G. f. parvula" = "green",
+  "G. f. fortis" = "purple",
+  "G. f. platyrhyncha" = "cyan"
+)
+
+# Using data.frame 'fin2' and the morphological variables therein:
+
+# we perform the MANOVA
+manova_model <- manova(cbind(BodyL, WingL, TailL, BeakW, BeakH, LBeakL, UBeakL, `N.UBkL`, TarsusL) ~ Species, data = fin2)
+
+# And print a summary of the results
+
+print(manova_model)
+
+```
+
+PCA
+
+```{r, echo = TRUE}
+# Select the morphological measurements (numeric columns)
+morph_data <- fin2[, sapply(fin2, is.numeric)]
+
+# Scale the data (important for PCA)
+scaled_morph_data <- scale(morph_data)
+
+# Perform PCA using prcomp
+pca_result <- prcomp(scaled_morph_data, scale. = FALSE) # Data is already scaled
+
+# Summary of PCA results
+summary(pca_result)
+
+# Loadings of the principal components
+loadings(pca_result)
+
+# You can also visualize the PCA results, for example, a scree plot
+plot(pca_result$sdev^2, type = "b", main = "Scree Plot", xlab = "Principal Component", ylab = "Variance")
+
+# And a biplot to see the relationship between samples and variables
+biplot(pca_result)
+```
+
+LDA:
+
+```{r, echo = TRUE}
+
+# Select the relevant columns for LDA
+lda_data <- fin2[, c("Species", "BodyL", "WingL", "TailL", "BeakW", "BeakH", "LBeakL", "UBeakL", "N.UBkL", "TarsusL")]
+
+# Perform LDA
+lda_result <- lda(Species ~ ., data = lda_data)
+
+# Display the results
+print(lda_result)
+```
+
+```{r, echo = TRUE, 'body size comparisons'}
+
+# Choose the morphological measures (i.e. the numeric columns)
+morph_data <- fin2[, sapply(fin2, is.numeric)]
+
+# Scale the data
+scaled_morph_data <- scale(morph_data)
+
+# Perform PCA
+pca_result <- prcomp(scaled_morph_data, scale. = TRUE)
+
+# Extract the scores for the first principal component (PC1)
+fin2$BodySize <- pca_result$x[, 1]
+
+# Now, compare the mean body size (PC1 scores) across species using ANOVA
+size_anova <- aov(BodySize ~ Species, data = fin2)
+summary(size_anova)
+
+# If the ANOVA is significant, perform a post-hoc test (e.g., Tukey's HSD) to see which species differ in body size
+if (summary(size_anova)[[1]][["Pr(>F)"]][1] < 0.05) {
+  tukey_result <- TukeyHSD(size_anova)
+  print(tukey_result)
+}
+
+# To determine which species is larger (body size), you can look at the mean PC1 scores per species
+aggregate(BodySize ~ Species, data = fin2, mean)
+
+
+```
+
+```{r, echo = TRUE, 'Allometry WingL + BodyL'}
+
+# Log-transform both variables
+fin2$logBodyL <- log(fin2$BodyL)
+fin2$logWingL <- log(fin2$WingL)
+
+# Fit a linear model to the log-transformed data
+allometry_model <- lm(logWingL ~ logBodyL, data = fin2)
+summary(allometry_model)
+
+# Examine the slope of the regression line
+slope <- coef(summary(allometry_model))[2, 1]
+
+print(slope)
+p_value <- coef(summary(allometry_model))[2, 4]
+
+cat("Slope of log(WingL) vs log(BodyL):", slope, "\n")
+cat("P-value for the slope:", p_value, "\n")
+
+
+# Check sample sizes for each group
+table(fin2$Species)
+
+#with dplyr:
+fin2 %>%
+  dplyr::count(Species)
+
+#Perform a t-test to check scaling = allometric (slope != 1)
+t_test_result <- t.test(as.numeric(slope), mu = 1)
+print(t_test_result)
+```
+
+```{r, echo = TRUE, }
+# You can also visualize this relationship
+ggplot(fin2, aes(x = logBodyL, y = logWingL)) +
+  geom_point() +
+  geom_smooth(method = 'lm') +
+  xlab("Log(Body Length)") +
+  ylab("Log(Wing Length)") +
+  ggtitle("Allometry between Wing Length and Body Length") +
+    theme(axis.title = element_text(size = 0.7)) + scale_fill_manual(values = species_colors)
+```
+
+
+
+
+```{r, echo = FALSE, ''}
+
+
+ggplot(df_fortis, aes(x = BeakH)) +
+  geom_histogram(bins = 10, fill = "purple", color = "black") +
+  xlab("Beak Height (mm)") +
+  ylab("Frequency") +
+  ggtitle("Frequency Distribution of Beak Height in Geospiza f. fortis")
+
+```
+
+
+
+```{r, echo = FALSE}
+
+
+# Calculate skewness
+skewness_value <- skewness(df_fortis$BeakH)
+cat("Skewness of Beak Height in G. f. fortis:", skewness_value, "\n")
+
+# Calculate kurtosis
+kurtosis_value <- kurtosis(df_fortis$BeakH)
+cat("Kurtosis of Beak Height in G. f. fortis:", kurtosis_value, "\n")
+
+```
+
+
+```{r, echo = TRUE,} 
+# Separate data by sex
+bodyL_female <- df_fortis %>% filter(sex == "F") %>% pull(BodyL)
+bodyL_male <- df_fortis %>% filter(sex == "M") %>% pull(BodyL)
+
+# Visual inspection: Histograms
+par(mfrow = c(1, 2))
+hist(bodyL_female, main = "Body Length (Female)", xlab = "mm")
+hist(bodyL_male, main = "Body Length (Male)", xlab = "mm")
+par(mfrow = c(1, 1))
+
+# Visual inspection: Density plots
+plot(density(bodyL_female), main = "Body Length (Female)")
+plot(density(bodyL_male), main = "Body Length (Male)")
+
+# Statistical test for normality (Shapiro-Wilk)
+shapiro.test(bodyL_female)
+shapiro.test(bodyL_male)
+
+# Levene's test
+
+
+leveneTest(BodyL ~ sex, data = df_fortis)
+```
+```{r, echo = TRUE}
+colum# Separate data by sex
+tailL_female <- df_fortis %>% filter(sex == "F") %>% pull(TailL)
+tailL_male <- df_fortis %>% filter(sex == "M") %>% pull(TailL)
+
+# Visual inspection: Histograms
+par(mfrow = c(1, 2))
+hist(tailL_female, main = "Tail Length (Female)", xlab = "mm")
+hist(tailL_male, main = "Tail Length (Male)", xlab = "mm")
+par(mfrow = c(1, 1))
+
+# Visual inspection: Density plots
+plot(density(tailL_female), main = "Tail Length (Female)")
+plot(density(tailL_male), main = "Tail Length (Male)")
+
+# Statistical test for normality (Shapiro-Wilk)
+shapiro.test(tailL_female)
+shapiro.test(tailL_male)
+
+# Statistical test for equality of variances (Levene's test)
+leveneTest(TailL ~ sex, data = df_fortis)
+```
+# References
+
+Snodgrass R and Heller E (1904) Papers from the Hopkins-Stanford Galapagos Expedition, 1898-99. XVI. Birds. Proceedings of the Washington Academy of Sciences 5: 231-372.
