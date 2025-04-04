@@ -2,23 +2,35 @@
 title: "Darwin’s finches: Intraspecific morphological variation"
 author: "Kirsten Hendricks"
 date: "2025-03-18"
-output: html_document
+output: 
+html_document : 
+toc: true
+toc_depth: 3
+toc_float: true
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-library(dynRB)
-library(tidyverse)
+
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(tidyverse, 
+               tidyr, 
+               janitor,
+               vegan,
+               readr,
+               magrittr,
+               factoextra,
+               ggpubr,
+               ggplot2,
+               rgl)
+library(dynRB) 
 library(MASS)
-library(RColorBrewer)
 library(tibble)
-library(ggplot2)
 library(ggplotify)
 library(rmarkdown)
 library(dynlm)
 library(stats)
 library(dplyr)
-library(tidyr)
 library(gtable)
 library(glue)
 library(knitr)
@@ -26,6 +38,12 @@ library(gt)
 library(coin)
 library(scales)
 library(car)
+library(moments)
+library(effectsize)
+library(fitdistrplus)
+
+
+
 ```
 
 # Methods
@@ -34,19 +52,14 @@ library(car)
 
 The first step is to fetch the data, and rename the species for readability.
 
-```{r, echo=FALSE, 'fetching data and adding the sex variable'}
-
-rm(list = ls()) #clears global environment for fresh start.
-
+```{r, echo=FALSE, 'fetching data + adding the sex variable'}
+rm(list = ls()) #clear global environment
 data("finch")   #fetching dataset
-
 sex<-rep(c("F","M"),length(finch[,1])/2) #creating the new "sex" variable
-
 fin2<-cbind(finch,sex) #adding the variable, as a new column, to the dataset
-
 fin2 <- as.data.frame(fin2) %>% # Convert to data.frame for easier manipulation
   mutate(Species = case_when( 
-        Species == "Geospiza_heliobates"    ~ "G. heliobates",      #Renaming the species column for readability
+        Species == "Geospiza_heliobates"    ~ "G. heliobates",      #Renaming species for readability
         
         Species == "Geospiza_prosthemelas_prosthemelas" ~ "G.p. prosthemelas",    #...
         
@@ -57,18 +70,32 @@ fin2 <- as.data.frame(fin2) %>% # Convert to data.frame for easier manipulation
          Species == "Geospiza_fortis_platyrhyncha"      ~ "G. f. platyrhyncha",#...
     
 
-  TRUE ~ Species  # Keep any other species  unchanged
+  TRUE ~ Species  # Keep other species  unchanged
   ))
 
 df_fortis <- fin2 %>%
-  filter(Species == "G. f. fortis") ## seperate G. f. fortis data from 'fin2' for later intraspecific anylysis.
+  filter(Species == "G. f. fortis")
+
+df_platy <- fin2 %>%
+  filter(Species == "G. f. platyrhyncha")
+
+df_parvula <- fin2 %>%
+  filter(Species == "G. f. parvula")
+
+df_prosthem <- fin2 %>%
+  filter(Species == "G.p. prosthemelas"
+  )
+
+df_heli <- fin2 %>%
+  filter(Species == "G. heliobates"
+  )
+
+
 ```
 
-
+The data is then grouped by Species and the columns are labelled according to the traits being expressed by the each variable. The first, second and third statistical moments of each variable are then taken (those being the mean, standard deviation and variance respectively).
 
 ```{r echo=TRUE, message=TRUE, warning=TRUE, paged.print=TRUE}
-
-##The data is grouped by species, the arithmetic mean -- mean()--, standard deviation --sd()-- and variance --var()-- are calculated for the numeric traits (so not including the sex variable) and rounded up to 3 significant figures.
 
 finch_smry <- fin2 %>%
   group_by(Species) %>%
@@ -81,7 +108,7 @@ finch_smry <- fin2 %>%
     ),
     .names = "{.col}_{.fn}"
   )) %>%
-  pivot_longer(             ## Reformatting the table so each group (Species) is represented by in a single row, naming and adding the columns associated with each trait's mean (p/m std. dev) and their variance.
+  pivot_longer(
     cols = -Species,
     names_to = c("Trait", ".value"),
     names_sep = "_"
@@ -93,18 +120,12 @@ finch_smry <- fin2 %>%
     names_from = Trait,
     values_from = c(Mean_SD, var),
     names_glue = "{Trait}_{.value}"
-  )
-```
-
-Once the statistical moments have been taken, the table is rearranged for clarity.
-
-```{r, echo = TRUE, 'Reordering the data for accessibility'}
-  finch_smry_ordered <- finch_smry %>%  ##assingning the summarised data to a new table which will be handled seperately (this may not be necessary, however it does allow for a more transparent step-by-step progression. It may be more efficient to do all of the ordering dirctly on 'finch_smry', that leaves us with fewer tables in the end, particularly since 'finch_smry' isn't really used from hereon out.
-  dplyr::select( 
+  ) %>%
+  dplyr::select(  ##Reordering the columns such that the mean trait (± Std Dev) is directly adjascent to the trait varience. This means the readers' eyes do not need to scan back and forth across the whole table to find the variance of the "Upper Beak Length" (as an example), it is placed the row directly to the right of the mean and std dev row. 
     Species,
     BodyL_Mean_SD,
-    BodyL_var,      # The columns for the first, second and third statistical moments (mean, std. dev and var) for each trait are reordered to sit adjacent to one another in the table.
-    WingL_Mean_SD, #..............
+    BodyL_var,  
+    WingL_Mean_SD, #Trait mean is ordered next to its matching trait variance
     WingL_var,
     TailL_Mean_SD,#................
     TailL_var,
@@ -124,13 +145,13 @@ Once the statistical moments have been taken, the table is rearranged for clarit
 
 ```
 
+The following is a summary table denoting the different species of Finches, along with the means, ± the standard deviations and the variance of each variable.
 
+```{r, echo=FALSE , results ='asis', 'summary statistical table'}
 
-```{r, echo = TRUE, results ='asis', 'summary statistical table'}
-
-finch_smry_ordered %>%
-gt()%>%    
-  cols_label(          ## Renaming the columns so as to improve interpretability as well as the underscores that made the column names look cluttered.
+finch_smry%>%
+gt()%>%
+  cols_label(
     Species = "Species",
     BodyL_Mean_SD = "avg Body Length (± sd)",
     WingL_Mean_SD = "avg Wing Length (± sd)",
@@ -151,7 +172,7 @@ gt()%>%
     `N.UBkL_var` = "NUBKL var",
     TarsusL_var= "TarsusL var"
   ) %>%
-  data_color(   ##setting the respecctive specie colours for the cells in the table
+  data_color(
     columns = Species,
     rows = everything(),
     method = "factor",
@@ -168,11 +189,13 @@ gt()%>%
 
 ### Data Analysis
 
+MANOVA:
 
+```{r pressure, echo=TRUE}
 
-```{r , echo= TRUE, 'MANOVA'}
+##Creating a List to assign Species Colours Once and for all
 
-species_colors <- c(    ##saving specie colours as vector, saving the need to retype this each time we want to plot them
+species_colors <- c(
   "G. heliobates" = "red",
   "G.p. prosthemelas" = "grey",
   "G. f. parvula" = "green",
@@ -180,41 +203,89 @@ species_colors <- c(    ##saving specie colours as vector, saving the need to re
   "G. f. platyrhyncha" = "cyan"
 )
 
-# Using the morphological variables therein:
+##Box Plots for comparing Body Lengths of the species
 
+ggplot2::ggplot(data= fin2, aes(x = Species, y = BodyL, fill = Species)) +
+  geom_boxplot() +
+  scale_fill_manual(values = species_colors) +
+  xlab("Species") +
+  ylab("Body Length (mm)") +
+  theme_classic() +
+  #facet_wrap(~Species) +
+  guides(fill = guide_legend(title = "Species"))
 
-manova_model <- manova(cbind(BodyL, WingL, TailL, BeakW, BeakH, LBeakL, UBeakL, `N.UBkL`, TarsusL) ~ Species, data = fin2)
+# Using data.frame 'fin2' and the morphological variables therein:
 
-#Summary of the results
+# we perform the MANOVA on the data, grouped by species
 
+depvar <- cbind(fin2$BodyL, fin2$WingL, fin2$TailL, fin2$BeakW, fin2$BeakH, fin2$LBeakL, fin2$UBeakL, fin2$N.UBkL, fin2$TarsusL)
+
+manova_model <- manova(depvar ~ Species, data = fin2)
 print(manova_model)
 
+
+# print and summarise the results
+
+
+summary(manova_model) 
+
+eta_squared(manova_model)
 ```
 
 PCA
 
-```{r, echo = TRUE, 'Principla Component Analysis'}
-
-# Select the morphological measurements (from the numeric columns)
-morph_data <- fin2[, sapply(fin2, is.numeric)]
-
-# Scale the data 
-scaled_morph_data <- scale(morph_data)
-
-# Perform PCA using prcomp
-pca_result <- prcomp(scaled_morph_data, scale. = FALSE) # Data is already scaled
-
-# Summary of PCA results
-summary(pca_result)
-
-# Loadings of the principal components
-loadings(pca_result)
-
-# You can also visualize the PCA results in a scree plot
-plot(pca_result$sdev^2, type = "b", main = "Scree Plot", xlab = "Principal Component", ylab = "Variance")
-
-# And a biplot to see the relationship between samples and variables
-biplot(pca_result)
+```{r, echo = TRUE}
+      
+      # Let's first check whether there are any NA values
+      any(is.na(fin2))
+      FinchData = na.omit(fin2)
+      
+      
+      # remove non-numeric columns from the dataframe (Species and sex)
+      FinchDataclean = FinchData %>%
+        dplyr::select(where(is.numeric))
+      
+      # scaling the data
+      pca_fit <- FinchDataclean %>% 
+        prcomp(scale = TRUE) 
+      
+      # PCA summary results
+      summary(pca_fit)
+   
+      
+      #loadings
+      pca_loadings = pca_fit$rotation %>%
+        as.data.frame() %>%
+        dplyr::select(c(PC1, PC2))
+      
+      
+      # Collecting the PC scores
+      pca_fit_df = pca_fit$x %>%
+        as.data.frame() %>%
+        dplyr::select(c(PC1, PC2)) #To focus on the first 2 principle components
+      
+    
+      # Add "Species" column to the end of pca_fit_df dataframe
+      pca_fit_df$Species = FinchData$Species
+      
+      # change the alpha value to add transparency to the colours
+      pca_plot = pca_fit_df %>%
+        ggplot(aes(PC1, PC2, color = Species)) + 
+        geom_point(size = 1.5, alpha = 0.5) +
+        scale_color_manual(
+          values = species_colors
+        ) +
+        xlab("PC1 ") +
+        ylab("PC2 ") +
+        labs(color = "Species",
+             title = "PC1 and PC2 for Darwin's Finches ") +
+        # add lines through the origin 
+        geom_hline(yintercept = 0, linetype = "dashed", color = "black") +
+        geom_vline(xintercept = 0, linetype = "dashed", color = "black") +
+        theme_classic()
+      
+      pca_plot
+      
 ```
 
 LDA:
@@ -227,87 +298,456 @@ lda_data <- fin2[, c("Species", "BodyL", "WingL", "TailL", "BeakW", "BeakH", "LB
 # Perform LDA
 lda_result <- lda(Species ~ ., data = lda_data)
 
-# Display the results
-print(lda_result)
-```
+lda_df <- lda_result$scaling %>% 
+  as.data.frame()%>%
+  dplyr::select(c(LD1, LD2, LD3, LD4)) 
 
-```{r, echo = TRUE, 'body size comparisons'}
+  gt(lda_df,
+  rowid_to_column(lda_df)%>% head(),
+  rowname_col = "Traits",
+  caption = ""
+  
+  
 
-# Choose the morphological measures (i.e. the numeric columns)
-morph_data <- fin2[, sapply(fin2, is.numeric)]
+)
 
-# Scale the data
-scaled_morph_data <- scale(morph_data)
 
-# Perform PCA
-pca_result <- prcomp(scaled_morph_data, scale. = TRUE)
 
-# Extract the scores for the first principal component (PC1)
-fin2$BodySize <- pca_result$x[, 1]
 
-# Now, compare the mean body size (PC1 scores) across species using ANOVA
-size_anova <- aov(BodySize ~ Species, data = fin2)
-summary(size_anova)
-
-# If the ANOVA is significant, perform a post-hoc test (e.g., Tukey's HSD) to see which species differ in body size
-if (summary(size_anova)[[1]][["Pr(>F)"]][1] < 0.05) {
-  tukey_result <- TukeyHSD(size_anova)
-  print(tukey_result)
-}
-
-# To determine which species is larger (body size), you can look at the mean PC1 scores per species
-aggregate(BodySize ~ Species, data = fin2, mean)
 
 
 ```
 
-```{r, echo = TRUE, 'Allometry WingL + BodyL'}
-
-# Log-transform both variables
-fin2$logBodyL <- log(fin2$BodyL)
-fin2$logWingL <- log(fin2$WingL)
-
-# Fit a linear model to the log-transformed data
-allometry_model <- lm(logWingL ~ logBodyL, data = fin2)
-summary(allometry_model)
-
-# Examine the slope of the regression line
-slope <- coef(summary(allometry_model))[2, 1]
-
-print(slope)
-p_value <- coef(summary(allometry_model))[2, 4]
-
-cat("Slope of log(WingL) vs log(BodyL):", slope, "\n")
-cat("P-value for the slope:", p_value, "\n")
+```{r, echo = TRUE}
 
 
-# Check sample sizes for each group
-table(fin2$Species)
+# Log-transform all variables for "D. F. Fortis" bar sex 
 
-#with dplyr:
+df_fortis$logBodyL_f <- log(df_fortis$BodyL)
+df_fortis$logWingL_f <- log(df_fortis$WingL)
+df_fortis$logBeakH_f  <- log(df_fortis$BeakH)
+
+#//////////////////////////////////////////////////////////////////////////////////////////////
+
+# Fit linear models to the log-transformed data in a pairwise manner per species
+
+
+
+FortBody_Wing_allom <- lm(logBodyL_f   ~ logWingL_f, data = df_fortis)
+summary(FortBody_Wing_allom)
+
+ggplot( data = df_fortis, aes(x= logBodyL_f, y= logWingL_f)) +
+  geom_point() +
+   xlab("Log Body Length") +
+   ylab("Log Wing Length") +
+   theme_classic() +
+   stat_smooth(method = "lm", geom ="smooth", 
+   alpha = 0.2, colour = "purple", linewidth = 0.3, se = TRUE)
+
+  
+
+
+FortBeakH_Body_allom <- lm(logBodyL_f ~ logBeakH_f, data = df_fortis)
+summary(FortBeakH_Body_allom)
+
+ggplot( data = df_fortis, aes(x= logBodyL_f, y=logBeakH_f)) +
+  geom_point() +
+   xlab("Log Body Length") +
+   ylab("Log Beak height") +
+   theme_classic() +
+   stat_smooth(method = "lm", geom ="smooth", 
+   alpha = 0.4, colour = "purple", linewidth = 0.3, se = TRUE)
+
+  
+
+
+##/////////////////////////////////////////////////////////////////////////////////////////////
+
+
+# Examine the slopes of the regression lines
+
+
+
+
+
+slope_BodW_fort <- coef(summary(FortBody_Wing_allom))[2, 1]
+
+print(slope_BodW_fort)
+
+p_value_BodW_fort <- coef(summary(FortBody_Wing_allom))[2, 4]
+
+cat("Slope of log(Body Length) vs log(Wing Length) for G. f. fortis:", slope_BodW_fort, "\n")
+
+cat("P-value for the slope:", p_value_BodW_fort, "\n")
+
+#########
+
+slope_BodBkH_fort <- coef(summary(FortBeakH_Body_allom))[2, 1]
+
+print(slope_BodBkH_fort)
+
+p_value_BodBkH_fort <- coef(summary(FortBeakH_Body_allom))[2, 4]
+
+cat("Slope of log(Body Length) vs log(Beak Height) for G. f. fortis:", slope_BodBkH_fort, "\n")
+
+cat("P-value for the slope:", p_value_BodBkH_fort, "\n")
+
+
+##########
+
+fort_slopes <- cbind(slope_BodW_fort, slope_BodBkH_fort)
+
+# check sample sizes with dplyr so r knows which package to source the 'count' function for/ prevents coersion errors:
 fin2 %>%
   dplyr::count(Species)
 
-#Perform a t-test to check scaling = allometric (slope != 1)
-t_test_result <- t.test(as.numeric(slope), mu = 1)
-print(t_test_result)
-```
+#Perform a t-test to check scaling = allometric ( if slope != 1, then body features scale allometrically, else the scaling is isometric)
 
-```{r, echo = TRUE, }
-# You can also visualize this relationship
-ggplot(fin2, aes(x = logBodyL, y = logWingL)) +
+t_test_fort <- t.test(fort_slopes, mu = 1)
+
+print(t_test_fort) ##t-test result shows that the true mean is not equal to 1
+
+
+#########################################################################
+
+
+# log transform variables for "G. F. Parvula"
+
+df_parvula$logBodyL_pa <- log(df_parvula$BodyL)
+df_parvula$logWingL_pa <- log(df_parvula$WingL)
+df_parvula$logBeakH_pa  <- log(df_parvula$BeakH)
+
+# Fit linear models to the log-transformed data in a pairwise manner per species
+
+
+
+Parv_Body_Wing_allom <- lm(logBodyL_pa   ~ logWingL_pa, data = df_parvula)
+summary(Parv_Body_Wing_allom)
+
+ggplot( data = df_parvula, aes(x= logBodyL_pa, y=logWingL_pa)) +
   geom_point() +
-  geom_smooth(method = 'lm') +
-  xlab("Log(Body Length)") +
-  ylab("Log(Wing Length)") +
-  ggtitle("Allometry between Wing Length and Body Length") +
-    theme(axis.title = element_text(size = 0.7)) + scale_fill_manual(values = species_colors)
+   xlab("Log Body Length") +
+   ylab("Log Wing Length") +
+   theme_classic() +
+   stat_smooth(method = "lm", geom ="smooth", 
+   alpha = 0.4, colour = "green", linewidth = 0.3, se = TRUE)
+
+Parv_BeakH_Body_allom <- lm(logBeakH_pa ~ logBodyL_pa, data = df_parvula)
+summary(Parv_BeakH_Body_allom)
+
+ggplot( data = df_parvula, aes(x= logBodyL_pa, y=logBeakH_pa)) +
+  geom_point() +
+   xlab("Log Body Length") +
+   ylab("Log Beak height") +
+   theme_classic() +
+   stat_smooth(method = "lm", geom ="smooth", 
+   alpha = 0.4, colour = "green", linewidth = 0.3, se = TRUE)
+
+
+##/////////////////////////////////////////////////////////////////////////////////////////////
+
+
+# Examine the slopes of the regression lines
+
+
+slope_BodW_parv <- coef(summary(Parv_Body_Wing_allom))[2, 1]
+
+print(slope_BodW_fort)
+
+p_value_BodW_parv <- coef(summary(Parv_Body_Wing_allom))[2, 4]
+
+cat("Slope of log(Body Length) vs log(Wing Length) for  G. f. parvula:", slope_BodW_parv, "\n")
+
+cat("P-value for the slope:", p_value_BodW_parv, "\n")
+
+#########
+
+slope_BodBkH_parv <- coef(summary(Parv_BeakH_Body_allom))[2, 1]
+
+print(slope_BodBkH_parv)
+
+p_value_BodBkH_parv <- coef(summary(Parv_BeakH_Body_allom))[2, 4]
+
+cat("Slope of log(Body Length) vs log(Beak Height) for 	G. f. parvula:", slope_BodBkH_parv, "\n")
+
+cat("P-value for the slope:", p_value_BodBkH_parv, "\n")
+
+
+##########
+
+parv_slopes <- cbind(slope_BodW_parv, slope_BodBkH_parv)
+
+# check sample sizes with dplyr so r knows which package to source the 'count' function for/ prevents coersion errors:
+fin2 %>%
+  dplyr::count(Species)
+
+#Perform a t-test to check scaling = allometric ( if slope != 1, then body features scale allometrically, else the scaling is isometric)
+
+t_test_parv <- t.test(parv_slopes, mu = 1)
+
+print(t_test_parv) ##t-test result shows that the true mean is not equal to 1
+
+
+#########################################################################
+
+#Log transform data for G. f. platyrhyncha
+
+df_platy$logBodyL_pl <- log(df_platy$BodyL)
+df_platy$logWingL_pl <- log(df_platy$WingL)
+df_platy$logBeakH_pl  <- log(df_platy$BeakH)
+
+# Fit linear models to the log-transformed data in a pairwise manner per species
+
+
+
+Platy_Body_Wing_allom <- lm(logBodyL_pl   ~ logWingL_pl, data = df_platy)
+summary(Platy_Body_Wing_allom)
+
+ggplot( data = df_platy, aes(x= logBodyL_pl, y=logWingL_pl)) +
+  geom_point() +
+   xlab("Log Body Length") +
+   ylab("Log Wing Length") +
+   theme_classic() +
+   stat_smooth(method = "lm", geom ="smooth", 
+   alpha = 0.4, colour = "cyan", linewidth = 0.3, se = TRUE)
+
+Platy_BeakH_Body_allom <- lm(logBodyL_pl ~ logBeakH_pl, data = df_platy)
+summary(Platy_BeakH_Body_allom)
+
+
+ggplot( data = df_platy, aes(x= logBodyL_pl, y=logBeakH_pl)) +
+  geom_point() +
+   xlab("Log Body Length") +
+   ylab("Log Beak height") +
+   theme_classic() +
+   stat_smooth(method = "lm", geom ="smooth", 
+   alpha = 0.4, colour = "cyan", linewidth = 0.3, se = TRUE)
+
+
+##/////////////////////////////////////////////////////////////////////////////////////////////
+
+
+# Examine the slopes of the regression lines
+
+
+
+
+
+slope_BodW_pl <- coef(summary(Platy_Body_Wing_allom))[2, 1]
+
+print(slope_BodW_pl)
+
+p_value_BodW_pl <- coef(summary(Platy_Body_Wing_allom))[2, 4]
+
+cat("Slope of log(Body Length) vs log(Wing Length) for G. f. platyrhyncha:", slope_BodW_pl, "\n")
+
+cat("P-value for the slope:", p_value_BodW_pl, "\n")
+
+#########
+
+slope_BodBkH_pl <- coef(summary(Platy_BeakH_Body_allom))[2, 1]
+
+print(slope_BodBkH_pl)
+
+p_value_BodBkH_pl <- coef(summary(Platy_BeakH_Body_allom))[2, 4]
+
+cat("Slope of log(Body Length) vs log(Beak Height) for G. f. platyrhyncha:", slope_BodBkH_pl, "\n")
+
+cat("P-value for the slope:", p_value_BodBkH_pl, "\n")
+
+
+##########
+
+platy_slopes <- cbind(slope_BodW_pl, slope_BodBkH_pl)
+
+# check sample sizes with dplyr so r knows which package to source the 'count' function for/ prevents coersion errors:
+fin2 %>%
+  dplyr::count(Species)
+
+#Perform a t-test to check scaling = allometric ( if slope != 1, then body features scale allometrically, else the scaling is isometric)
+
+t_test_pl <- t.test(platy_slopes, mu = 1)
+
+print(t_test_pl) ##t-test result shows that the true mean is not equal to 1
+
+
+
+#########################################################################
+
+#Log Transform the data for G. heliobates
+
+df_heli$logBodyL_h <- log(df_heli$BodyL)
+df_heli$logWingL_h <- log(df_heli$WingL)
+df_heli$logBeakH_h  <- log(df_heli$BeakH)
+
+# Fit linear models to the log-transformed data in a pairwise manner per species
+
+
+Heli_Body_Wing_allom <- lm(logBodyL_h   ~ logWingL_h, data = df_heli)
+summary(Heli_Body_Wing_allom)
+
+ggplot( data = df_heli, aes(x= logBodyL_h, y=logWingL_h)) +
+  geom_point() +
+   xlab("Log Body Length") +
+   ylab("Log Wing Length") +
+   theme_classic() +
+   stat_smooth(method = "lm", geom ="smooth", 
+   alpha = 0.4, colour = "red", linewidth = 0.3, se = TRUE)
+
+Heli_BeakH_Body_allom <- lm(logBodyL_h ~ logBeakH_h, data = df_heli)
+summary(Heli_BeakH_Body_allom)
+
+
+ggplot( data = df_heli, aes(x= logBodyL_h, y=logBeakH_h)) +
+  geom_point() +
+   xlab("Log Body Length") +
+   ylab("Log Beak height") +
+   theme_classic() +
+   stat_smooth(method = "lm", geom ="smooth", 
+   alpha = 0.4, colour = "red", linewidth = 0.3, se = TRUE)
+
+
+
+##/////////////////////////////////////////////////////////////////////////////////////////////
+
+
+# Examine the slopes of the regression lines
+
+
+
+slope_BodW_he <- coef(summary(Heli_Body_Wing_allom))[2, 1]
+
+print(slope_BodW_he)
+
+p_value_BodW_he <- coef(summary(Heli_Body_Wing_allom))[2, 4]
+
+cat("Slope of log(Body Length) vs log(Wing Length) for G. heliobates:", slope_BodW_he, "\n")
+
+cat("P-value for the slope:", p_value_BodW_he, "\n")
+
+#########
+
+slope_BodBkH_he <- coef(summary(Heli_BeakH_Body_allom))[2, 1]
+
+print(slope_BodBkH_he)
+
+p_value_BodBkH_he <- coef(summary(Heli_BeakH_Body_allom))[2, 4]
+
+cat("Slope of log(Body Length) vs log(Beak Height) for G. heliobates:", slope_BodBkH_he, "\n")
+
+cat("P-value for the slope:", p_value_BodBkH_he, "\n")
+
+
+##########
+
+heli_slopes <- cbind(slope_BodW_he, slope_BodBkH_he)
+
+# check sample sizes with dplyr so r knows which package to source the 'count' function for/ prevents coersion errors:
+fin2 %>%
+  dplyr::count(Species)
+
+#Perform a t-test to check scaling = allometric ( if slope != 1, then body features scale allometrically, else the scaling is isometric)
+
+t_test_heli <- t.test(heli_slopes, mu = 1)
+
+print(t_test_heli) ##t-test result shows that the true mean is not equal to 1
+
+
+
+#########################################################################
+
+#Log Transform data for G.p. prosthemelas
+
+df_prosthem$logBodyL_pr <- log(df_prosthem$BodyL)
+df_prosthem$logWingL_pr <- log(df_prosthem$WingL)
+df_prosthem$logBeakH_pr <- log(df_prosthem$BeakH)
+
+# Fit linear models to the log-transformed data to compare relelationship
+
+
+Pros_Body_Wing_allom <- lm(logBodyL_pr   ~ logWingL_pr, data = df_prosthem)
+summary(Pros_Body_Wing_allom)
+
+ggplot( data = df_prosthem, aes(x= logBodyL_pr, y=logWingL_pr)) +
+  geom_point() +
+   xlab("Log Body Length") +
+   ylab("Log Wing Length") +
+   theme_classic() +
+   stat_smooth(method = "lm", geom ="smooth", 
+   alpha = 0.4, colour = "grey", linewidth = 0.3, se = TRUE)
+
+Pros_BeakH_Body_allom <- lm(logBodyL_pr ~ logBeakH_pr, data = df_prosthem)
+summary(Pros_BeakH_Body_allom)
+
+
+
+ggplot( data = df_prosthem, aes(x= logBodyL_pr, y=logBeakH_pr)) +
+  geom_point() +
+   xlab("Log Body Length") +
+   ylab("Log Beak height") +
+   theme_classic() +
+   stat_smooth(method = "lm", geom ="smooth", 
+   alpha = 0.4, colour = "grey", linewidth = 0.3, se = TRUE)
+
+
+##/////////////////////////////////////////////////////////////////////////////////////////////
+
+
+# Examine the slopes of the regression lines
+
+
+
+slope_BodW_pr <- coef(summary(Pros_Body_Wing_allom))[2, 1]
+
+print(slope_BodW_fort)
+
+p_value_BodW_pr <- coef(summary(Pros_Body_Wing_allom))[2, 4]
+
+cat("Slope of log(Body Length) vs log(Wing Length) for G.p. prosthemelas:", slope_BodW_pr, "\n")
+
+cat("P-value for the slope:", p_value_BodW_pr, "\n")
+
+#########
+
+slope_BodBkH_pr <- coef(summary(Pros_BeakH_Body_allom))[2, 1]
+
+print(slope_BodBkH_pr)
+
+p_value_BodBkH_pr <- coef(summary(Pros_BeakH_Body_allom))[2, 4]
+
+cat("Slope of log(Body Length) vs log(Beak Height) for G.p. prosthemelas:", slope_BodBkH_pr, "\n")
+
+cat("P-value for the slope:", p_value_BodBkH_pr, "\n")
+
+
+##########
+
+Pr_slopes <- cbind(slope_BodW_pr, slope_BodBkH_pr)
+
+# check sample sizes with dplyr so r knows which package to source the 'count' function for/ prevents coersion errors:
+fin2 %>%
+  dplyr::count(Species)
+
+#Perform a t-test to check scaling = allometric ( if slope != 1, then body features scale allometrically, else the scaling is isometric)
+
+t_test_pr <- t.test(Pr_slopes, mu = 1)
+
+print(t_test_pr) ##t-test result shows that the true mean is not equal to 1
+
+
+
+
+#########################################################################
+
+
+
+#########################################################################
+
+
+
 ```
 
-
-
-
-```{r, echo = FALSE, ''}
+```{r, echo = TRUE}
 
 
 ggplot(df_fortis, aes(x = BeakH)) +
@@ -316,33 +756,43 @@ ggplot(df_fortis, aes(x = BeakH)) +
   ylab("Frequency") +
   ggtitle("Frequency Distribution of Beak Height in Geospiza f. fortis")
 
+descdist(df_fortis$BeakH, discrete = FALSE)
+
+fit.weibull <- fitdist(df_fortis$BeakH, "weibull")
+fit.norm <- fitdist(df_fortis$BeakH, "norm")
+
+#checking fit for normal distriibution
+
+plot(fit.norm) ##Looks more like Normal dist, based on Q-Q plot 
+
+#Weibull Distribution fit-check
+
+plot(fit.weibull) ##Q-Q plot has an outlier on the low end likely to be a worse fit
 ```
 
-
-
-```{r, echo = FALSE}
+```{r, echo = TRUE}
 
 
 # Calculate skewness
 skewness_value <- skewness(df_fortis$BeakH)
 cat("Skewness of Beak Height in G. f. fortis:", skewness_value, "\n")
 
-# Calculate kurtosis
+# Calculate kurtosis 
 kurtosis_value <- kurtosis(df_fortis$BeakH)
 cat("Kurtosis of Beak Height in G. f. fortis:", kurtosis_value, "\n")
 
 ```
 
-
-```{r, echo = TRUE,} 
+```{r, echo = TRUE}
 # Separate data by sex
 bodyL_female <- df_fortis %>% filter(sex == "F") %>% pull(BodyL)
 bodyL_male <- df_fortis %>% filter(sex == "M") %>% pull(BodyL)
 
+
 # Visual inspection: Histograms
 par(mfrow = c(1, 2))
-hist(bodyL_female, main = "Body Length (Female)", xlab = "mm")
-hist(bodyL_male, main = "Body Length (Male)", xlab = "mm")
+hist(bodyL_female, main = "Body Length (Female)", col = "purple", xlab = "mm")
+hist(bodyL_male, main = "Body Length (Male)", col = "purple", xlab = "mm")
 par(mfrow = c(1, 1))
 
 # Visual inspection: Density plots
@@ -357,16 +807,18 @@ shapiro.test(bodyL_male)
 
 
 leveneTest(BodyL ~ sex, data = df_fortis)
+
 ```
+
 ```{r, echo = TRUE}
-colum# Separate data by sex
+# Separate data by sex
 tailL_female <- df_fortis %>% filter(sex == "F") %>% pull(TailL)
 tailL_male <- df_fortis %>% filter(sex == "M") %>% pull(TailL)
 
 # Visual inspection: Histograms
 par(mfrow = c(1, 2))
-hist(tailL_female, main = "Tail Length (Female)", xlab = "mm")
-hist(tailL_male, main = "Tail Length (Male)", xlab = "mm")
+hist(tailL_female, main = "Tail Length (Female)", col = "purple", xlab = "mm")
+hist(tailL_male, main = "Tail Length (Male)", col= "purple", xlab = "mm")
 par(mfrow = c(1, 1))
 
 # Visual inspection: Density plots
@@ -380,6 +832,35 @@ shapiro.test(tailL_male)
 # Statistical test for equality of variances (Levene's test)
 leveneTest(TailL ~ sex, data = df_fortis)
 ```
-# References
 
-Snodgrass R and Heller E (1904) Papers from the Hopkins-Stanford Galapagos Expedition, 1898-99. XVI. Birds. Proceedings of the Washington Academy of Sciences 5: 231-372.
+## References
+
+Ben-Shachar M, Lüdecke D, Makowski D (2020). effectsize: Estimation of Effect Size Indices and Standardized Parameters. Journal of Open Source Software, 5(56), 2815. doi: 10.21105/joss.02815
+
+Hester J, Bryan J (2024). *glue: Interpreted String Literals*. R package version 1.8.0, <https://CRAN.R-project.org/package=glue>.
+
+Komsta L, Novomestky F (2022). *moments: Moments, Cumulants, Skewness, Kurtosis and Related Tests*. R package version 0.14.1, <https://CRAN.R-project.org/package=moments>.
+
+Marie Laure Delignette-Muller, Christophe Dutang (2015). fitdistrplus: An R Package for Fitting Distributions. Journal of Statistical Software, 64(4), 1-34. DOI 10.18637/jss.v064.i04.
+
+```         
+Rinker, T. W. & Kurkiewicz, D. (2017). pacman: Package Management for R.
+```
+
+version 0.5.0. Buffalo, New York. <http://github.com/trinker/pacman>
+
+```         
+Snodgrass R and Heller E (1904) Papers from the Hopkins-Stanford Galapagos            Expedition, 1898-99. XVI. Birds. Proceedings of the Washington Academy of Sciences 5: 231-372.
+
+Venables, W. N. & Ripley, B. D. (2002) Modern Applied Statistics with S.
+```
+
+Fourth Edition. Springer, New York. ISBN 0-387-95457-0
+
+```         
+ Wickham H, François R, Henry L, Müller K, Vaughan D (2023). _dplyr: A
+```
+
+Grammar of Data Manipulation\_. R package version 1.1.4, <https://CRAN.R-project.org/package=dplyr>.
+
+Xie Y (2025). *knitr: A General-Purpose Package for Dynamic Report Generation in R*. R package version 1.50, <https://yihui.org/knitr/>.

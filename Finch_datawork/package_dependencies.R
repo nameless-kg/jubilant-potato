@@ -22,7 +22,7 @@ install.packages("scales") #Provide methods for automatically determining breaks
 
 
 df_heliobates <- fin2 %>%
-  filter(str_detect(Species, 'Geospiza_heliobates')) %>% #filter the rows associated with the Species "Geospiza_heliobates"
+  filter(str_detect(Species, 'Geospiza_heliobates'))  #filter the rows associated with the Species "Geospiza heliobates" and assign them to a new table
 
 df_prosthemelas <- fin2 %>% 
   filter(Species == "Geospiza_prosthemelas_prosthemelas")

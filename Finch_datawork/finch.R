@@ -59,7 +59,6 @@ finch_smry <- fin2 %>%
     values_from = c(Mean_SD, var),
     names_glue = "{Trait}_{.value}"
   ) %>%
-  finch_smry_ordered <- finch_smry %>%
   dplyr::select(
     Species,
     BodyL_Mean_SD,
@@ -113,3 +112,61 @@ gt() %>%
       "G.p. prosthemelas" = "grey"),
     alpha = 0.8
   )
+
+
+
+ggplot2::ggplot(data= fin2, aes(x = Species, y = BodyL, fill = Species)) +
+  geom_boxplot() +
+  scale_fill_manual(values = species_colors) +
+  xlab("Species") +
+  ylab("Body Length (mm)") +
+  theme_classic() +
+  #facet_wrap(~Species) +
+  guides(fill = guide_legend(title = "Species"))
+
+##working 
+
+ggplot( data = df_fortis, aes(x = logBodyL_f, y = logBeakH_f, fill = Species))
+      geom_point() +
+        xlab("Log Body Length") +
+        ylab("Log Beak height") +
+        theme_classic() +
+        stat_smooth(method = "lm", formula = y~x, geom ="smooth", 
+                    alpha = 0.2, colour = "purple", linewidth = 0.3, se = TRUE)
+
+      colnames(biopsy_data) <- c(
+        "id",
+        "clump_thickness", 
+        "uniform_cell_size" ,
+        "uniform_cell_shape",
+        "marg_adhesion",
+        "epithelial_cell_size",
+        "bare_nuclei",
+        "bland_chromatin",
+        "normal_nucleoli",
+        "mitoses",
+        "outcome"
+      )
+      
+
+      
+      
+      # Select the morphological measurements (numeric columns)
+      morph_data <- finch_smry[, sapply(finch_smry, is.numeric)]
+      
+      # Scale the data for PCA
+      scaled_morph_data <- scale(morph_data)
+      
+      # Perform PCA using prcomp
+      pca_result <- prcomp(scaled_morph_data, scale. = FALSE) # Data is already scaled
+      
+      # Summary of PCA results
+      summary(pca_result)
+      
+      # Loadings of the principal components
+      loadings(pca_result)
+      
+      # visualize the PCA results on a scree plot
+      plot(pca_result$sdev^2, type = "b", main = "Scree Plot", xlab = "Principal Component", ylab = "Variance")
+      
+      
